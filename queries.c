@@ -145,6 +145,8 @@ static int alarm_query (struct tgl_state *TLS, struct query *q) {
     out_ints (q->data, q->data_len);
 
     tglmp_encrypt_send_message (TLS, q->session->c, packet_buffer, packet_ptr - packet_buffer, q->flags & QUERY_FORCE_SEND);
+
+    vlogprintf (E_NOTICE, "alarm_query: resent query #%" INT64_PRINTF_MODIFIER "d of size %d to DC %d\n", q->msg_id, 4 * q->data_len, q->DC->id);
   } else {
     q->flags &= ~QUERY_ACK_RECEIVED;
     if (tree_lookup_query (TLS->queries_tree, q)) {
@@ -255,6 +257,7 @@ struct query *tglq_send_query_ex (struct tgl_state *TLS, struct tgl_dc *DC, int 
   q->callback = callback;
   q->callback_extra = callback_extra;
   TLS->active_queries ++;
+  vlogprintf(E_DEBUG, "tglq_send_query_ex() done: %d active queries", TLS->active_queries);
   return q;
 }
 
@@ -3152,6 +3155,7 @@ static void end_load (struct tgl_state *TLS, struct download *D, void *callback,
 
 static void load_next_part (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra);
 static int download_on_answer (struct tgl_state *TLS, struct query *q, void *DD) {
+  vlogprintf(E_DEBUG, "download_on_answer()\n");
   struct tl_ds_upload_file *DS_UF = DD;
 
   struct download *D = q->extra;
@@ -3209,6 +3213,7 @@ static int download_on_answer (struct tgl_state *TLS, struct query *q, void *DD)
 }
 
 static int download_on_error (struct tgl_state *TLS, struct query *q, int error_code, int error_len, const char *error) {
+  vlogprintf(E_DEBUG, "download_on_error()\n");
   tgl_set_query_error (TLS, EPROTO, "RPC_CALL_FAIL %d: %.*s", error_code, error_len, error);
 
   struct download *D = q->extra;
@@ -3239,6 +3244,8 @@ static struct query_methods download_methods = {
 };
 
 static void load_next_part (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra) {
+  vlogprintf(E_DEBUG, "tgl load_next_part(size=%d, offset=%d, dc=%d, local_id=%d, volume=%" INT64_PRINTF_MODIFIER "d, secret=%" INT64_PRINTF_MODIFIER "d)\n", D->size, D->offset, D->dc, D->local_id, D->volume, D->secret);
+  vlogprintf(E_DEBUG, "tgl_load_next_part: type=%d, id=%" INT64_PRINTF_MODIFIER "d, access_hash=%" INT64_PRINTF_MODIFIER "d, next=%d\n", D->type, D->id, D->access_hash, D->next);
   if (!D->offset) {
     static char buf[PATH_MAX];
     int l;
@@ -3293,9 +3300,11 @@ static void load_next_part (struct tgl_state *TLS, struct download *D, void *cal
   out_int (D->size ? (1 << 14) : (1 << 19));
   tglq_send_query (TLS, TLS->DC_list[D->dc], packet_ptr - packet_buffer, packet_buffer, &download_methods, D, callback, callback_extra);
   //tglq_send_query (TLS, TLS->DC_working, packet_ptr - packet_buffer, packet_buffer, &download_methods, D);
+  vlogprintf(E_DEBUG, "tgl load_next_part() out\n");
 }
 
 void tgl_do_load_photo_size (struct tgl_state *TLS, struct tgl_photo_size *P, void (*callback)(struct tgl_state *TLS, void *callback_extra, int success, const char *filename), void *callback_extra) {
+  vlogprintf(E_DEBUG, "tgl_do_load_photo_size(size=%d, dc=%d, local_id=%d, volume=%" INT64_PRINTF_MODIFIER "d, secret=%" INT64_PRINTF_MODIFIER "d)\n", P->size, P->loc.dc, P->loc.local_id, P->loc.volume, P->loc.secret);
   if (!P->loc.dc) {
     vlogprintf (E_WARNING, "Bad video thumb\n");
     if (callback) {
@@ -3316,6 +3325,7 @@ void tgl_do_load_photo_size (struct tgl_state *TLS, struct tgl_photo_size *P, vo
   D->name = 0;
   D->fd = -1;
   load_next_part (TLS, D, callback, callback_extra);
+  vlogprintf(E_DEBUG, "tgl_do_load_photo_size() out\n");
 }
 
 void tgl_do_load_file_location (struct tgl_state *TLS, struct tgl_file_location *P, void (*callback)(struct tgl_state *TLS, void *callback_extra, int success, const char *filename), void *callback_extra) {
@@ -3342,6 +3352,7 @@ void tgl_do_load_file_location (struct tgl_state *TLS, struct tgl_file_location 
 }
 
 void tgl_do_load_photo (struct tgl_state *TLS, struct tgl_photo *photo, void (*callback)(struct tgl_state *TLS, void *callback_extra, int success, const char *filename), void *callback_extra) {
+  vlogprintf(E_DEBUG, "tgl_do_load_photo(sizes_num=%d, id=%" INT64_PRINTF_MODIFIER "d, access_hash=%" INT64_PRINTF_MODIFIER "d)\n", photo->sizes_num, photo->id, photo->access_hash);
   if (!photo->sizes_num) {
     tgl_set_query_error (TLS, EINVAL, "Bad photo (no photo sizes");
     if (callback) {
@@ -3353,6 +3364,9 @@ void tgl_do_load_photo (struct tgl_state *TLS, struct tgl_photo *photo, void (*c
   int maxi = 0;
   int i;
   for (i = 0; i < photo->sizes_num; i++) {
+    vlogprintf(E_DEBUG, "tgl_do_load_photo: size %d: w=%d X h=%d, size=%d, loc: dc=%d, local_id=%d, volume=%" INT64_PRINTF_MODIFIER "d, secret=%" INT64_PRINTF_MODIFIER "d\n",
+	i, photo->sizes[i].w, photo->sizes[i].h, photo->sizes[i].size,
+	photo->sizes[i].loc.dc, photo->sizes[i].loc.local_id, photo->sizes[i].loc.volume, photo->sizes[i].loc.secret);
     if (photo->sizes[i].w + photo->sizes[i].h > max) {
       max = photo->sizes[i].w + photo->sizes[i].h;
       maxi = i;

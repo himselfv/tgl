@@ -175,6 +175,7 @@ static int rpc_send_message (struct tgl_state *TLS, struct connection *c, void *
   assert (len > 0 && !(len & 0xfc000003));
 
   int total_len = len >> 2;
+  vlogprintf (E_DEBUG, "writing message: total_len = %d, len = %d\n", total_len, len);
   if (total_len < 0x7f) {
     assert (TLS->net_methods->write_out (c, &total_len, 1) == 1);
   } else {
